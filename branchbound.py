@@ -1,60 +1,24 @@
-import mip  # Certifique-se de ter o pacote de programação linear python-mip instalado
+import mip  
+from leitura import retorna_conteudo_arquivo as rca # Função que retorna o conteúdo do arquivo de entrada
 
-def branch_and_bound(problem):
-    best_solution = None
-    nodes = [(None, None, None, problem)]  # (valor da função, solução, relaxação linear, problema)
+numvariaveis, numrestricoes, funcaoobjetivo, restricoes = rca()
 
-    while nodes:
-        node = nodes.pop()  # Escolha o próximo nó a ser processado
+# Crie um modelo de programação linear
+def cria_modelo():
+    m = mip.Model(sense=mip.MAXIMIZE) # MAXIMIZE ou MINIMIZE
 
-        value, solution, relaxation, subproblem = node
+    # Crie as variáveis de decisão
+    x = [m.add_var(name='x{}'.format(i), var_type=mip.CONTINUOUS) for i in range(numvariaveis)]
 
-        if relaxation is None:
-            relaxation = solve_relaxation(subproblem)
+    # Crie a função objetivo
+    m.objective = mip.xsum(funcaoobjetivo[i] * x[i] for i in range(numvariaveis))
 
-        if is_integer_solution(relaxation):
-            if best_solution is None or value > best_solution[0]:
-                best_solution = (value, solution)
-            continue  # Volte para a próxima iteração
+    # Crie as restrições
+    for i in range(numrestricoes):
+        m += mip.xsum(restricoes[i][j] * x[j] for j in range(numvariaveis)) <= restricoes[i][-1]
+    return m
 
-        # Encontre a variável binária mais próxima de 0,5 e ramifique
-        branching_var, branching_val = find_branching_variable(relaxation)
-        
-        # Ramificação: Crie dois subproblemas
-        subproblem1 = create_subproblem(subproblem, branching_var, branching_val)
-        subproblem2 = create_subproblem(subproblem, branching_var, 1 - branching_val)
-        
-        # Adicione os subproblemas à pilha (ou fila, dependendo da estratégia)
-        nodes.append((None, None, None, subproblem1))
-        nodes.append((None, None, None, subproblem2))
+    
 
-    return best_solution
-
-def solve_relaxation(problem):
-    # Use o pacote python-mip para resolver a relaxação linear
-    model = mip.Model()
-    # Adicione variáveis, restrições e função objetivo ao modelo
-    # ...
-    model.optimize()
-    return model
-
-def is_integer_solution(relaxation):
-    # Verifique se a solução do problema relaxado é inteira
-    # ...
-    return True
-
-def find_branching_variable(relaxation):
-    # Encontre a variável binária mais próxima de 0,5
-    # ...
-    return branching_var, branching_val
-
-def create_subproblem(problem, var, value):
-    # Crie um novo subproblema com restrição para a variável binária
-    # ...
-    return subproblem
-
-if __name__ == "__main__":
-    # Defina o problema de programação linear inteira binária
-    # ...
-    solution = branch_and_bound(problem)
-    print("Melhor solução:", solution)
+    
+branchbound()
