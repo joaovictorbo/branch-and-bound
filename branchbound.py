@@ -1,78 +1,97 @@
+from mip import Model, xsum, MAXIMIZE, CONTINUOUS, BINARY
 from collections import deque
-from mip import Model, xsum, maximize
 
-def retorna_conteudo_arquivo():
-    with open('teste1.txt', 'r') as arquivo:
-        conteudo_arquivo = arquivo.readlines()
-        conteudo_arquivo = [x.split() for x in conteudo_arquivo]
-        conteudo_arquivo = [[int(x) for x in y] for y in conteudo_arquivo]
-        numvariaveis = conteudo_arquivo[0][0]
-        numrestricoes = conteudo_arquivo[0][1]
-        funcaoobjetivo = conteudo_arquivo[1]
-        restricoes = conteudo_arquivo[2:]
+def load_input_file(file_path):
+    try:
+        with open(file_path, 'r') as file:
+            lines = file.readlines()
 
-        return numvariaveis, numrestricoes, funcaoobjetivo, restricoes
+        num_variables = int(lines[0][0])
+        objective_coefficients = list(map(int, lines[1].split()))
+        constraints = [list(map(int, line.split())) for line in lines[2:]]
 
-def criar_modelo_mip(numvariaveis, numrestricoes, funcaoobjetivo, restricoes):
-    m = Model()
+        return num_variables, objective_coefficients, constraints
+    except FileNotFoundError:
+        print(f"File {file_path} not found.")
+        return None
 
-    # Cria variáveis de decisão
-    x = [m.add_var(name=f'x_{i}', var_type='I') for i in range(numvariaveis)]
+def solve_MIP_problem(num_variables, objective_coefficients, constraints):
+    model = Model(name="MIP_Solution", solver_name="CBC", sense=MAXIMIZE)
 
-    # Define a função objetivo
-    m.objective = maximize(
-        xsum(funcaoobjetivo[i] * x[i] for i in range(numvariaveis))
-    )
+    x = [model.add_var(var_type=BINARY, name=f'x_{i+1}') for i in range(num_variables)]
+    model.objective += xsum(objective_coefficients[i] * x[i] for i in range(num_variables))
 
-    # Adiciona as restrições
-    for i in range(numrestricoes):
-        m += xsum(restricoes[i][j] * x[j] for j in range(numvariaveis)) <= restricoes[i][-1]
+    for constraint in constraints:
+        model += xsum(constraint[i] * x[i] for i in range(num_variables)) <= constraint[-1]
 
-    return m, x
+    model.optimize()
 
-numvariaveis, numrestricoes, funcaoobjetivo, restricoes = retorna_conteudo_arquivo()
-modelo_mip, x = criar_modelo_mip(numvariaveis, numrestricoes, funcaoobjetivo, restricoes)
+    return model.objective_value, model
 
-def branch_and_bound(problema, x):
-    fila = deque()
-    fila.append(problema)
-    melhor_solucao = float('-inf')
+def branch_and_bound_solver(num_variables, objective_coefficients, constraints):
+    queue = deque()
+    best_solution = float('-inf')
+    best_model = None
 
-    while fila:
-        prob_atual = fila.popleft()
-        prob_atual.optimize(max_seconds=60)  # Defina o tempo limite desejado
+    model = Model(solver_name="CBC", sense=MAXIMIZE)
+    x = [model.add_var(var_type=CONTINUOUS, lb=0, ub=1, name=f'x_{i+1}') for i in range(num_variables)]
+    model.objective += xsum(objective_coefficients[i] * x[i] for i in range(num_variables))
 
-        if prob_atual.objective_value <= melhor_solucao:
-            continue
+    for constraint in constraints:
+        model += xsum(constraint[i] * x[i] for i in range(num_variables)) <= constraint[-1]
 
-        mais_perto_meio = 1.0
-        variavel_fracao = None
-        for var in x:
-            distancia_meio = abs(var.x - 0.5)
-            if 0 < var.x < 1 and distancia_meio < mais_perto_meio:
-                variavel_fracao = var
-                mais_perto_meio = distancia_meio
+    queue.append(model)
 
-        if variavel_fracao is None:
-            if prob_atual.objective_value > melhor_solucao:
-                melhor_solucao = prob_atual.objective_value
-            continue
+    while queue:
+        model = queue.popleft()
+        model.optimize()
 
-        pro_zero = prob_atual.copy()
-        prob_um = prob_atual.copy()
+        if model.objective_value and model.objective_value > best_solution:
+            fractional_vars = [(var, abs(var.x - 0.5)) for var in model.vars if not var.x.is_integer()]
+            fractional_vars.sort(key=lambda x: x[1])
 
-        pro_zero += variavel_fracao == 0  # Adiciona a restrição xj = 0
-        prob_um += variavel_fracao == 1  # Adiciona a restrição xj = 1
+            if not fractional_vars:
+                best_solution = model.objective_value
+                best_model = model
+            else:
+                var, _ = fractional_vars[0]
+                idx = var.idx
 
-        fila.append(pro_zero)
-        fila.append(prob_um)
+                model1 = model.copy()
+                model2 = model.copy()
 
-    return melhor_solucao
+                model1 += model1.vars[idx] == 1
+                model2 += model2.vars[idx] == 0
 
-# Exemplo de uso:
-solucao = branch_and_bound(modelo_mip, x)
-print("Melhor solução encontrada:", solucao)
-#print o valor de cada variavel na solução otima
-for var in x:
-    print(var.name, '=', var.x)
-    
+                queue.append(model1)
+                queue.append(model2)
+
+    return best_solution, best_model
+
+
+instance_name = "teste2.txt"
+data = load_input_file(instance_name)
+
+if data:
+    num_variables, objective_coefficients, constraints = data
+
+    best_solution, best_model = branch_and_bound_solver(num_variables, objective_coefficients, constraints)
+
+    if best_model:
+        best_model.name = instance_name
+        best_model.write(f"{instance_name}.lp")
+
+        print(f"Best solution found (BB): {best_solution}")
+
+        print("Variables (BB):")
+        for var in best_model.vars:
+            print(f"{var.name} = {var.x}")
+
+        print("Solving with MIP...")
+        best_solution_mip, best_model_mip = solve_MIP_problem(num_variables, objective_coefficients, constraints)
+        print(f"Best solution found (MIP): {best_solution_mip}")
+        print("Variables (MIP):")
+        for var in best_model_mip.vars:
+            print(f"{var.name} = {var.x}")
+
+
